@@ -1,0 +1,228 @@
+---
+title: "Problem Set 8"
+author: "Ananth Josyula"
+institute: "Vanderbilt University"
+date: "Due Date: 2022/11/13 @ 11:59PM CST"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Getting Set Up
+
+If you haven't already, create a folder for this course, and then a subfolder within for the second lecture `Topic9_Clustering`, and two additional subfolders within `code` and `data`.
+
+Open `RStudio` and create a new RMarkDown file (`.Rmd`) by going to `File -> New File -> R Markdown...`.
+Change the title to `"DS1000: Problem Set 8"` and the author to your full name. Save this file as `[LAST NAME]_ps8.Rmd` to your `code` folder.
+
+If you haven't already, download the `FederalistPaperCorpusTidy.Rds` file from the course [github page](https://github.com/jbisbee1/DS1000-F2022/blob/master/Lectures/Topic9_Clustering/data/CountyVote2004_2020.Rds) and save it to your `data` folder.
+
+All of the following questions should be answered using 
+
+Require `tidyverse`, `tidytext`, and load the `FederalistPaperCorpusTidy.Rds` data to `corpus.tidy`.
+```{r}
+# INSERT CODE HERE
+require(tidyverse)
+require(tidytext)
+corpus.tidy <- readRDS("../data/FederalistPaperCorpusTidy.rds")
+```
+
+
+## Question 1 [4 points]
+Calculate the degree to which Madison or Hamilton use a given word by calculating the ratio of Hamilton's use to Madison's use. To do this, start by converting the data into a "bag of words" (BOW) structure using the `unnest_tokens()` function from the `tidytext` package. Make sure to remove any numbers! Then calculate the frequency that either Hamilton or Madison used each word, and finally calculate the ratio of Hamilton to Madison. Now remove any words that appear fewer than 20 times, and then plot the top-10 most Hamilton-specific words and the top-10 most Madison-specific words. Do you see any interesting patterns?
+
+```{r}
+# INSERT CODE HERE
+tokenize <- corpus.tidy %>%
+  unnest_tokens(output = word, input = text, token = "word_stems") %>% 
+  mutate(word = str_replace_all(word, "\\d+", "")) %>%
+  filter(word != "")
+
+authorWords <- tokenize %>%
+  count(author, word) %>%
+  filter(author %in% c("hamilton", "madison")) %>%
+  spread(author, n, fill = 0) %>%
+  rowwise() %>%
+  mutate(ratio = hamilton/madison,
+    total = sum(hamilton, madison, na.rm = T))
+
+discrim_words <- authorWords %>%
+  filter(total > 20 & (ratio > 5 | ratio < 1) & ratio != "inf")
+
+topHam <- discrim_words %>%
+  select(word,ratio) %>%
+  arrange(-ratio) %>%
+  filter(!is.infinite(ratio)) %>%
+  ungroup() %>%
+  slice(1:10)
+  
+toplotHam <- topHam %>%
+  ggplot(aes(x = ratio, y = reorder(word,ratio))) +
+  geom_bar(stat = "identity") +
+  labs(title = "Top 10 Hamilton-Specific Words",
+    subtitle = "Data from FederalistPaperCorpusTidy.rds",
+    x = "Ratio", 
+    y = "Word")
+
+
+topMad <- discrim_words %>%
+  select(word,ratio) %>%
+  arrange(ratio) %>%
+  filter(!is.infinite(ratio)) %>%
+  ungroup() %>%
+  slice(1:10)
+
+toplotMad <- topMad %>%
+  ggplot(aes(x = ratio, y = reorder(word,ratio))) +
+  geom_bar(stat = "identity") +
+  labs(title = "Top 10 Madison-Specific Words",
+    subtitle = "Data from FederalistPaperCorpusTidy.rds",
+    x = "Ratio", 
+    y = "Word")
+
+toplotHam
+
+toplotMad
+```
+
+> - According to the graphs above, Hamilton tends to use words more on the side of Government. Meanwhile, Madison tends to use more words on the side of the citizen's desires.
+
+## Question 2 [4 points]
+Now **wrangle** the data in order to run a regression in which you predict either Hamilton or Madison authorship as a function of the rate at which the top-5 most specific words for each author are used in each document. To do this, you first must create a document term matrix (DTM) and calculate the rate at which words are used (calculate the rate per 1,000 words for this step). Then you must spread the data so that you have a dataset you can use for regression analysis, in which each row is a document, and each column is a word, and the values are the rate at which that word is used in that document. Be careful to change the name of the `author` column to avoid replacing it with the rate at which the word `author` appears in the data! Also make sure to replace missing data (`NA`) with zeros! Finally, recode author so that the outcome is numeric, and is +1 if the author is Hamilton, and is -1 if the author is Madison, and is `NA` otherwise.
+
+```{r}
+# INSERT CODE HERE
+dtm <-tokenize %>%
+count(author,document,word) %>%
+group_by(document) %>%
+mutate(totalW = sum(n)) %>%
+ungroup() %>%
+mutate(rate = n*1000/totalW)
+
+dat <- dtm %>%
+select(-n, -totalW) %>%
+
+rename(origA = author) %>%
+spread(word, rate, fill = 0)
+
+dtmFinal <- dat %>%
+select(origA, document, topHam$word)
+
+dtmFinal <- dtmFinal %>%
+  mutate(score = ifelse(origA == "hamilton", 1,
+                        ifelse(origA == "madison",-1, NA)))
+```
+
+## Question 3 [4 points]
+Finally, run the regression and use the model to predict authorship on the full data. Visualize the results by plotting the list of Federalist papers on the x-axis and the predicted authorship on the y-axis, coloring points by whether they were authored by Madison, Hamilton, or are contested papers. According to this analysis, who most likely authored the contested documents? EXTRA CREDIT: calculate the 100-fold cross validated RMSE with an 80-20 split, and then express your predictions about authorship in terms of lower and upper bounds. `set.seed(123)` for consistency.
+
+```{r}
+# INSERT CODE HERE
+form <- paste0("score ~ ", paste(topHam$word, collapse = " + "))
+
+summary(modelHam <- lm(as.formula(form), dtmFinal))
+
+toplot <- dtmFinal %>% mutate(predA = predict(modelHam, newdata = dtmFinal))
+
+toplot %>%
+  filter(origA %in% c("hamilton", "madison", "contested")) %>%
+  ggplot(aes(x = document, y = predA, color = origA)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0) +
+  labs(title = "Predicted Authorship vs Documents from Federalist Papers", 
+       subtitle = "Data from FederalistPaperCorpusTidy.rds",
+       x = "Document", 
+       y = "Predicted Authorship")
+```
+
+> - According to the graph above, Madison is most likely the author of the contested papers since his known points are closest to the points of the contested papers. It is possible that Hamilton wrote one or two documents that are outliers and nearer known Hamilton points, but Madison remains the most liekly author.
+
+## Question 4 [4 points]
+Now open the Trump tweet dataset `Trump_tweet_words.Rds` and save it to an object named `tweet_words`. Also load the sentiment dictionary `nrc` from the `tidytext` package, and look at the words with sentiment scores by merging the two datasets with the `inner_join()` function, which you should save to a new object called `tweet_sentiment`. Using this data, investigate the following research question: do Trump's positive or negative tweets get more engagement (measured with retweets)? To answer this, you will need to first determine whether a tweet is positive or negative by choosing the sentiment that has more words in a tweet. In other words, if a given tweet has two positive words and three negative words, the tweet should be classified as negative. If the tweet has equal number of positive and negative words (or has none), classify it as neutral. Then `group_by()` the sentiment label and add up all the retweets by sentiment. Plot the result and discuss your findings based on visual analysis. Then redo the analysis but take the average retweets by sentiment. Does your conclusion change? If so, why?
+
+```{r}
+# INSERT CODE HERE
+tweet_words <- readRDS("../data/Trump_tweet_words.rds")
+
+nrc <- get_sentiments("nrc")
+
+tweet_sentiment <- tweet_words %>%
+  inner_join(nrc, by = "word")
+
+p4 <- tweet_sentiment %>%
+  select(sentiment, document, word, retweets) %>%
+  group_by(document) %>%
+  filter(sentiment == "positive" | sentiment == "negative") %>%
+  count(document,sentiment, word, retweets) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(difference = positive - negative) %>% 
+  mutate(tweetSentiment = ifelse(difference == 0, 'neutral', ifelse(difference > 0, 'positive', 'negative'))) %>%
+  group_by(tweetSentiment) %>% 
+  mutate(total = sum(retweets)) %>% ungroup() %>% 
+  ggplot(aes(x = tweetSentiment, y = total, color=tweetSentiment)) + 
+  geom_bar(stat = "identity") + 
+  labs(title = "Retweets vs Tweet Sentiment", 
+       subtitle = "Data from Trump_tweet_words.rds",
+       x = 'Tweet Sentiment', 
+       y = 'Retweets') 
+
+p4
+
+p4b <- tweet_sentiment %>%
+  select(sentiment, document, word, retweets) %>%
+  group_by(document) %>%
+  filter(sentiment == "positive" | sentiment == "negative") %>%
+  count(document,sentiment, word, retweets) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(difference = positive - negative) %>% 
+  mutate(tweetSentiment = ifelse(difference == 0, 'neutral', ifelse(difference > 0, 'positive', 'negative'))) %>%
+  group_by(tweetSentiment) %>% 
+  mutate(meanTweets = mean(retweets)) %>% ungroup() %>% 
+  ggplot(aes(x = tweetSentiment, y = meanTweets, color=tweetSentiment)) + 
+  geom_bar(stat = "identity") + 
+  labs(title = "Retweets vs Tweet Sentiment", 
+       subtitle = "Data from Trump_tweet_words.rds",
+       x = 'Tweet Sentiment', 
+       y = 'Retweets') 
+
+p4b
+```
+
+> - According to the graphs above, positive tweets garner more retweets. This could be due to how positive tweets encourage others to share their postivity with others by retweeting. However, when plotting the average retweets, the difference between the number of retweets for postive vs negative tweets reduces. This could be due to how overall Trump's retweet levels remain relatively constant.
+
+## Question 5 [4 points]
+Re-run the previous analysis, except look the results year by year. To do this, you will need to recalculate the average retweets by sentiment for each year. Plot your results over time, with the year in the x-axis and the average retweets on the y-axis, with points colored by sentiment and sized by the total number of tweets falling into each sentiment category per year. Describe your results. What might explain the patterns you observe?
+
+```{r}
+# INSERT CODE HERE
+p5 <- tweet_sentiment %>% 
+  select(sentiment, document, word, retweets, Tweeting.year) %>%
+  group_by(document, Tweeting.year) %>% 
+  filter(sentiment == 'positive' | sentiment == 'negative') %>% 
+  count(document,sentiment, word, retweets) %>% 
+  spread(sentiment, n, fill = 0) %>% 
+  mutate(difference = positive - negative) %>% 
+  mutate(tweetSentiment = ifelse(difference == 0, 'neutral', ifelse(difference > 0, 'positive', 'negative'))) %>% 
+  group_by(tweetSentiment, Tweeting.year) %>% 
+  mutate(meanRetweets = mean(retweets)) %>% ungroup() %>% 
+  ggplot(aes(x = Tweeting.year, y = meanRetweets, color=tweetSentiment, size = retweets)) + 
+  geom_point() + 
+  labs(title = 'Average Number of Retweets by Sentiment vs Time', 
+       subtitle = "Data from Trump_tweet_words.rds",
+       x = 'Year', 
+       y = 'Average Number of Retweets')
+
+p5
+```
+
+> - According to the graph above, overall Trump's number of retweets has grown over time. However, interestingly during Trump's years in office, he garnered more retweets from negative tweets. It could have occured due to pople caring more about his tweets Trump was the most powerful leader compared to his time out of office. This phenomenon changed in 2020, an election year during which he lost.
+
+## Question 6 [4 Extra credit points]
+Re-answer the research question proposed in Question 4 above comparing Trump pre-presidency to Trump post-presidency. First, state your theory and assumptions. Second, use this theory to generate a hypothesis. Third, evaluate using a linear regression model (`lm()`) in which you predict average retweets as a function of sentiment, subsetting the data first to prior to 2016 and then again, subsetting to 2016 and later. What do you find? **HINT:** You can either run the regression with a categorical version of the $X$ variable, or you can re-calculate sentiment as the difference between the number of positive and negative words in each tweet. **HINT 2:** You should log the retweets (run a univariate visualization if you don't believe me).
+
+```{r}
+# INSERT CODE HERE
+
+```
+
+> - Write 2-3 sentences here.

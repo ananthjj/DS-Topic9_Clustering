@@ -1,0 +1,305 @@
+---
+title: "Problem Set 7"
+author: "Prof. Bisbee"
+institute: "Vanderbilt University"
+date: "Due Date: 2022/11/06 @ 11:59PM CST"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Getting Set Up
+
+If you haven't already, create a folder for this course, and then a subfolder within for the second lecture `Topic9_Clustering`, and two additional subfolders within `code` and `data`.
+
+Open `RStudio` and create a new RMarkDown file (`.Rmd`) by going to `File -> New File -> R Markdown...`.
+Change the title to `"DS1000: Problem Set 7"` and the author to your full name. Save this file as `[LAST NAME]_ps7.Rmd` to your `code` folder.
+
+If you haven't already, download the `CountyVote2004_2020.Rds` file from the course [github page](https://github.com/jbisbee1/DS1000-F2022/blob/master/Lectures/Topic9_Clustering/data/CountyVote2004_2020.Rds) and save it to your `data` folder.
+
+All of the following questions should be answered using 
+
+Require `tidyverse` and load the `CountyVote2004_2020.Rds` data to `dat`.
+```{r}
+# INSERT CODE HERE
+require(tidyverse)
+dat <- readRDS("../data/CountyVote2004_2020.rds")
+glimpse(dat)
+```
+
+**HINT: ** Questions 1 and 2 can be found in the slides and recording for Monday's lecture. Questions 3 - 5 + the extra credit can be found in the slides and recording for Wednesday's lecture. Pay particular attention to the pre-lecture handouts if you get stuck!
+
+## Question 1 [4 points]
+Describe the columns `pct_rep_2020` and `pct_rep_2004`, following these steps:
+
+1. Look at the data and identify missingness. Which states have missing values?
+2. Visualize the data using univariate visualization for both measures, but put them on the same plot, differentiated by color. Do you notice any patterns?
+3. Visualize the data using multivariate (or conditional) visualization where `pct_rep_2020` is the outcome and `pct_rep_2004` is the predictor. Use the `geom_abline()` to create a 45 degree line on these plots. Do you notice any patterns? EXTRA CREDIT: Interpret this plot substantively and color the points by whether they are above or below the 45 degree line. 
+
+```{r}
+# INSERT CODE HERE
+dat %>%
+  count(is.na(pct_rep_2020))
+
+dat %>%
+  count(is.na(pct_rep_2004))
+
+dat %>%
+  group_by(state) %>%
+  select(pct_rep_2004) %>%
+  drop_na() %>%
+  filter(is.na(pct_rep_2004))
+
+dat %>%
+  group_by(state) %>%
+  select(pct_rep_2020) %>%
+  drop_na() %>%
+  filter(is.na(pct_rep_2020)) 
+
+dat %>%
+  ggplot() +
+  geom_density(aes(x = pct_rep_2004, color = "lightblue")) +
+  geom_density(aes(x = pct_rep_2020, color = "darkblue")) +
+  scale_color_manual(values = (c("lightblue","darkblue")),
+                     labels = (c("2004","2020"))) +
+  labs(title = "Density of Republicans in 2004 and 2020",
+       subtitle = "Data from CountyVote2004_2020.rds",
+       x = "Percentage",
+       y = "Density")
+
+dat %>%
+  mutate(higher = ifelse(pct_rep_2004 >= pct_rep_2020, pct_rep_2020, NA)) %>%
+  mutate(lower = ifelse(pct_rep_2004 < pct_rep_2020, pct_rep_2020, NA)) %>%
+  ggplot() +
+  geom_point(aes(x = pct_rep_2004, y = higher, color = "red", alpha = 0.6)) +
+  geom_point(aes(x = pct_rep_2004, y = lower, color = "blue", alpha = 0.6)) +
+  geom_abline(intercept=0,slope=1) + 
+  scale_color_manual(values = (c("red","blue")),
+                     labels = (c("2004 Percentage Higher than 2020 Percentage","2004 Percentage Lower than 2020 Percentage"))) +
+  labs(title = "2004 Percentage of Republican Votes as a Predictor of 2020 Percentage",
+       subtitle = "Data from CountyVote2004_2020.rds",
+       x = "Percentage in 2004",
+       y = "Percentage in 2020")
+
+```
+
+> - In pct_rep_2020 there are 35 NA values while in pct_rep_2004 there are 54 NA values. Both Arkansas and Maine have missingness in 2004, while Maine and Virginia have missingness in 2020. Based on the univariate visualization, there is a greater percentage in 2004 than 2020. Similarly, based on the same univariate visualization of both years, there is a greater density in 2020 than 2004. In the graph titled "2004 Percentage of Republican Votes as a Predictor of 2020 Percentage", red signifies that the 2004 percentage is higher than the 2020 percentage while blue signifies that the 2004 percentage is lower than the 2020 percentage.
+
+## Question 2 [4 points]
+Perform *k*-means analysis on these variables with *k* = 2, and then plot the results, coloring the points by cluster assignment. Then loop over values of *k* from 1 to 30 and plot the "elbow plot" with *k* on the x-axis and the total within sum of squares on the y-axis. What value of *k* would you choose? Re-calculate with that value, and then plot again. **NB: set `nstart = 25` to ensure replicability!** EXTRA CREDIT: Are you able to interpret these groups as a political scientist?
+
+```{r}
+# INSERT CODE HERE
+library(plotly)
+
+datClust <- dat %>% select(pct_rep_2004, pct_rep_2020) %>% drop_na()
+
+clusterVotes1 <- kmeans(datClust %>% select(pct_rep_2004,pct_rep_2020), centers = 2)
+
+ggVotes <- datClust %>%
+  mutate(clusterVotes = clusterVotes1$cluster) %>%
+  ggplot(aes(x = pct_rep_2004, y = pct_rep_2020, color = factor(clusterVotes))) +
+  geom_point() +
+  geom_abline(intercept = 0,slope = 1) +
+  labs(title="Percentage in 2004 vs Percentage in 2020",
+       subtitle = "Data from CountyVote2004_2020.rds",
+       x="Percentage in 2004",
+       y="Percentage in 2020",
+       color = "Cluster")
+       ggplotly(ggVotes,tooltip = "text")
+
+
+totWSS <- NULL
+for(k in 1:30) { 
+  clusterScale <- datClust %>%
+    kmeans(centers = k,nstart = 25, iter.max=30)
+    totWSS <- data.frame(totWSS = clusterScale$tot.withinss,k = k) %>%
+    bind_rows(totWSS)
+}
+ 
+totWSS %>%
+  ggplot(aes(x = k,y = totWSS)) +
+  geom_line() +
+  labs(title="Total WSS vs Number of Clusters",
+       subtitle = "Data from CountyVote2004_2020.rds",
+       x = "Number of Clusters",
+       y = "Total WSS")
+ 
+clusterVotes2 <- kmeans(datClust %>% select(pct_rep_2004,pct_rep_2020), centers = 10)
+ggVotes <- datClust %>%
+  mutate(clusterVotes = clusterVotes2$cluster) %>%
+  ggplot(aes(x = pct_rep_2004, y = pct_rep_2020, color = factor(clusterVotes))) +
+  geom_point() +
+  geom_abline(intercept = 0,slope = 1) +
+  labs(title="Percentage in 2004 vs Percentage in 2020",
+       subtitle = "Data from CountyVote2004_2020.rds",
+       x="Percentage in 2004",
+       y="Percentage in 2020")
+  ggplotly(ggVotes,tooltip = 'text')
+
+set.seed(123)
+clusterScale <- kmeans(datClust, centers = 10)
+```
+
+> - With K = 2, there are two clusters along the line with a slope of 1. However, using the "elbow plot" it is evident that K = 10 makes a lot more sense. 10 makes sense because it is located at the "elbow" Thus a data scientist would conclude that with 10 clusters based on counties it is possible to highlight counties' percentage in 2004 compared with 2020.
+
+## Question 3 [4 points]
+Now open the `FederalistPaperCorpusTidy.Rds` dataset (download from [here]([https://github.com/jbisbee1/DS1000-F2022/blob/master/Lectures/Topic9_Clustering/data/FederalistPaperCorpusTidy.Rds])). Require the `tidytext` package (install it if you haven't yet) and tokenize the data via the `unnest_tokens()` function, stemming the words via the `token = "word_stems"` input. Remove stop words and then calculate the most frequently used words by author. Plot the top 10 words by author and interpret the results. Do you notice any patterns in how different authors write?
+
+```{r}
+# INSERT CODE HERE
+require(tidytext)
+
+dat <- readRDS("../data/FederalistPaperCorpusTidy.rds")
+
+tokenize <- dat %>%
+  unnest_tokens (word, text, "word_stems") %>%
+  mutate(word = gsub("\\d+", "", word)) %>% 
+  filter(word != "")
+
+data("stop_words", package = "tidytext")
+
+tokenize <- anti_join(tokenize, stop_words, by = "word")
+
+tokenize <- tokenize %>%
+  filter(!word %in% stop_words$word)
+
+tokenize %>%
+  group_by(author) %>%
+  count(word) %>%
+  top_n(10, wt = n) %>%
+  arrange(-n) %>%
+  ggplot(aes(x=n, y = word, fill = author)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~author, scales = "free") +
+  theme(legend.position = "top") +
+  labs(title = "Top 10 Words by Author",
+       subtitle = "Data from FederalistPaperCorpusTidy.rds")
+
+
+tokenize %>%
+  group_by(author) %>%
+  count(word) %>%
+  arrange(-n)
+```
+
+> - Based on the plots, goverment and power are the two most common words. Interestingly enough, Hamilton uses the word power more than government, something not seen by any of the other authors or combinations of authors. Meanwhile, Jay uses the word nation the most while its use is less common for Hamilton and not even prevalent for Madison. 
+
+## Question 4 [4 points]
+Create an author-term matrix (analogous to a document term matrix except organized by author). Then calculate the TF-IDF by author and plot the top 10 words by TF-IDF for each author. Do you observe any noticeable differences now?
+
+```{r}
+# INSERT CODE HERE
+require(tm)
+
+atmatrix <- tokenize %>% count(author, word)
+
+tfidf <- bind_tf_idf(atmatrix, word, author, n)
+
+tfidf %>%
+  group_by(author) %>%
+  top_n(10, wt = tf_idf) %>%
+  ggplot(aes(x = tf_idf, y = reorder(word, tf_idf), fill = author)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Top 10 Words by Author using TF - IDF",
+       subtitle = "Data from FederalistPaperCorpusTidy.rds",
+       x = 'TF - IDF',
+       y = NULL) +
+  facet_wrap(~author,scales = "free",ncol = 2) +
+  theme(legend.position = "top")
+
+tfidf %>%
+  group_by(author) %>%
+  arrange(-tf_idf) %>%
+  slice(1:10)
+```
+
+> - Since this gets rid of the most commonly used words by multiple authors, finding more subtle patterns is possible. The top 10 words for each author or multiple authors is much more unique to each author. It is now possible to see how certain words pertaining to judicial themes are more prevalent for Hamilton while words relating to legislative themes are more prevalent for Madison.
+
+# Question 5 [4 points]
+Now create a document term matrix (DTM) only using the documents we know were written by Hamilton. As above, calculate the TF-IDF and then use this to estimate *k*-means clustering on these text data. To do so, start by "casting" the data via the `cast_dtm()` function. Then calculate the *k*-means analysis using *k* = 5 and then visualize the top 10 words per cluster. Can you interpret them? (Hint: use the `tidy()` function from the `tidymodels` package to help here.) **NB: set `nstart = 25` to ensure replicability!**
+
+```{r}
+# INSERT CODE HERE
+dtm <- tokenize %>%
+  filter(author == "hamilton") %>%
+  count(document, word)
+
+
+tfidf <- bind_tf_idf(dtm, word, document, n) 
+
+tfidf %>%
+  group_by(document) %>%
+  arrange(-tf_idf) %>%
+  slice(1:10)
+
+
+cast <- cast_dtm(tfidf, document, word, tf_idf)
+
+set.seed(123)
+
+out <- kmeans(cast, centers = 5, nstart = 25)
+
+kmTidy <- tidy(out) %>%
+  gather(word,avg_tfidf, -size,-cluster,-withinss)
+
+kmTidy %>%
+  group_by(cluster) %>%
+  arrange(-avg_tfidf) %>%
+  slice(1:10) %>%
+  ggplot(aes(x = avg_tfidf, y = reorder(word, avg_tfidf), fill = factor(cluster))) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~cluster, scales = 'free') +
+  labs(title = "Top 10 Words by Hamilton Measured by TF - IDF",
+       subtitle = "Data from FederalistPaperCorpusTidy.rds",
+       x = "TF - IDF",
+       y = NULL,) +
+  theme(legend.position = "top")
+```
+
+> - By dividing Hamilton's work into clusters, it is possible to see more nuanced distribution statistics. For example, the third cluster presumably pertaining to more geographical location themes, indicates that Hamilton uses Northern more than Southern. This is especially interesting because it sheds insight into Hamilton's most important concerns. Similarly, the second cluster seems to deal with the judicial themes and the fifth cluster deals with executive themes.
+
+# EXTRA CREDIT [4 points]
+Re-do question 5 but on Madison instead of Hamilton. Do you notice any differences between the clusters among essays written by Hamilton versus those written by Madison?
+
+
+```{r}
+# INSERT CODE HERE
+dtm <- tokenize %>%
+  filter(author == "madison") %>%
+  count(document, word)
+
+
+tfidf <- bind_tf_idf(dtm, word, document, n) 
+
+tfidf %>%
+  group_by(document) %>%
+  arrange(-tf_idf) %>%
+  slice(1:10)
+
+
+cast <- cast_dtm(tfidf, document, word, tf_idf)
+
+set.seed(123)
+
+out <- kmeans(cast, centers = 5, nstart = 25)
+
+kmTidy <- tidy(out) %>%
+  gather(word,avg_tfidf, -size,-cluster,-withinss)
+
+kmTidy %>%
+  group_by(cluster) %>%
+  arrange(-avg_tfidf) %>%
+  slice(1:10) %>%
+  ggplot(aes(x = avg_tfidf, y = reorder(word, avg_tfidf), fill = factor(cluster))) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~cluster, scales = 'free') +
+  labs(title = "Top 10 Words by Madison Measured by TF - IDF",
+       subtitle = "Data from FederalistPaperCorpusTidy.rds",
+       x = "TF - IDF",
+       y = NULL,) +
+  theme(legend.position = "top")
+```
+
+> - Similar to the clusters of Hamilton's work, Madison's third cluster focuses on the judicial branch.
+Interestingly, Madison's first cluster seems to focus on social divisions with factions and partitions  which was not nearly as apparant in Hamilton's clustering. Overall, Madison's clusters are much broader in comparison to Hamilton's more rigid clusters.
